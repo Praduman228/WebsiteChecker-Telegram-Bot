@@ -8,7 +8,7 @@ import threading
 
 load_dotenv()
 
-# ─── CONFIG — Fill these in ───────────────────────────
+
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -18,7 +18,7 @@ WEBSITES = [
     
 ]
 
-CHECK_INTERVAL = 600  # 10 minutes
+CHECK_INTERVAL = 600  
 TIMEOUT        = 10
 BAD_STATUS_CODES = [400, 401, 403, 404, 500, 502, 503, 504]
 # ──────────────────────────────────────────────────────
