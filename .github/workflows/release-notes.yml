@@ -10,12 +10,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install Node
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Install deps
+      - name: Install dependencies
         run: npm install axios
 
       - name: Generate Release Notes
@@ -23,10 +23,13 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_DATA: ${{ toJson(github.event.pull_request) }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           node <<'EOF'
           const axios = require("axios");
 
+          // ✅ Safe PR parsing
           const prRaw = JSON.parse(process.env.PR_DATA);
 
           const pr = {
@@ -36,11 +39,13 @@ jobs:
             html_url: prRaw.html_url
           };
 
-          const owner = "${{ github.repository_owner }}";
-          const repo = "${{ github.event.repository.name }}";
+          const owner = process.env.REPO_OWNER;
+          const repo = process.env.REPO_NAME;
 
           async function run() {
-            // 1. Fetch diff
+            console.log("Processing PR:", pr.title);
+
+            // 1️⃣ Fetch diff
             const diffRes = await axios.get(pr.diff_url, {
               headers: {
                 Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
@@ -50,27 +55,28 @@ jobs:
 
             const diff = diffRes.data.slice(0, 6000);
 
-            // 2. AI summary
-            const aiRes = await axios.post(
-              "https://openrouter.ai/api/v1/chat/completions",
-              {
-                model: "mistralai/mistral-7b-instruct",
-                messages: [{
-                  role: "user",
-                  content: `
-            Return JSON:
+            // 2️⃣ AI Summary
+            const prompt = `
+            You are a senior engineer generating release notes.
+            
+            Return STRICT JSON:
             {
               "type": "Feature | Bug Fix | Refactor | Improvement",
-              "summary": "one-line summary"
+              "summary": "short user-facing summary"
             }
-
+            
             PR Title: ${pr.title}
             Description: ${pr.body}
             Code:
             ${diff}
-                              `
-                            }]
-                          },
+            `;
+
+            const aiRes = await axios.post(
+              "https://openrouter.ai/api/v1/chat/completions",
+              {
+                model: "mistralai/mistral-7b-instruct",
+                messages: [{ role: "user", content: prompt }]
+              },
               {
                 headers: {
                   Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`
@@ -82,16 +88,20 @@ jobs:
             try {
               result = JSON.parse(aiRes.data.choices[0].message.content);
             } catch {
-              result = { type: "Improvement", summary: pr.title };
+              result = {
+                type: "Improvement",
+                summary: pr.title
+              };
             }
 
             const line = `- ${result.summary} ([PR](${pr.html_url}))`;
 
-            // 3. Create or update release
+            // 3️⃣ Get or create release
             const tag = "latest";
             const releaseName = "Latest Updates";
 
             let release;
+
             try {
               const res = await axios.get(
                 `https://api.github.com/repos/${owner}/${repo}/releases/tags/${tag}`,
@@ -121,8 +131,8 @@ jobs:
               release = res.data;
             }
 
-            // 4. Append new summary
-            const updatedBody = `${release.body}\n${line}`;
+            // 4️⃣ Append safely
+            const updatedBody = `${release.body || ""}\n${line}`;
 
             await axios.patch(
               `https://api.github.com/repos/${owner}/${repo}/releases/${release.id}`,
