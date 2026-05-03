@@ -23,6 +23,8 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_DATA: ${{ toJson(github.event.pull_request) }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           node <<'EOF'
           const axios = require("axios");
@@ -36,8 +38,8 @@ jobs:
             html_url: prRaw.html_url
                 };
 
-          const owner = "${{ github.repository_owner }}";
-          const repo = "${{ github.event.repository.name }}";
+          const owner = process.env.REPO_OWNER;
+          const repo = process.env.REPO_NAME;
 
           async function run() {
             // 1. Fetch diff
@@ -122,7 +124,7 @@ jobs:
             }
 
             // 4. Append new summary
-            const updatedBody = `${release.body}\n${line}`;
+             const updatedBody = `${release.body || ""}\n${line}`;
 
             await axios.patch(
               `https://api.github.com/repos/${owner}/${repo}/releases/${release.id}`,
