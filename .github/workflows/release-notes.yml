@@ -1,4 +1,4 @@
-name: Auto Release Notes V2
+name: Auto Release Notes V2.5
 
 on:
   pull_request:
