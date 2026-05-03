@@ -1,0 +1,140 @@
+name: Auto Release Notes
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  release-notes:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install deps
+        run: npm install axios
+
+      - name: Generate Release Notes
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node <<'EOF'
+          const axios = require("axios");
+
+          const pr = {
+            title: "${{ github.event.pull_request.title }}",
+            body: `${{ github.event.pull_request.body || "" }}`,
+            diff_url: "${{ github.event.pull_request.diff_url }}",
+            html_url: "${{ github.event.pull_request.html_url }}"
+          };
+
+          const owner = "${{ github.repository_owner }}";
+          const repo = "${{ github.event.repository.name }}";
+
+          async function run() {
+            // 1. Fetch diff
+            const diffRes = await axios.get(pr.diff_url, {
+              headers: {
+                Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+                Accept: "application/vnd.github.v3.diff"
+              }
+            });
+
+            const diff = diffRes.data.slice(0, 6000);
+
+            // 2. AI summary
+            const aiRes = await axios.post(
+              "https://openrouter.ai/api/v1/chat/completions",
+              {
+                model: "mistralai/mistral-7b-instruct",
+                messages: [{
+                  role: "user",
+                  content: `
+            Return JSON:
+            {
+              "type": "Feature | Bug Fix | Refactor | Improvement",
+              "summary": "one-line summary"
+            }
+
+            PR Title: ${pr.title}
+            Description: ${pr.body}
+            Code:
+            ${diff}
+                              `
+                            }]
+                          },
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`
+                }
+              }
+            );
+
+            let result;
+            try {
+              result = JSON.parse(aiRes.data.choices[0].message.content);
+            } catch {
+              result = { type: "Improvement", summary: pr.title };
+            }
+
+            const line = `- ${result.summary} ([PR](${pr.html_url}))`;
+
+            // 3. Create or update release
+            const tag = "latest";
+            const releaseName = "Latest Updates";
+
+            let release;
+            try {
+              const res = await axios.get(
+                `https://api.github.com/repos/${owner}/${repo}/releases/tags/${tag}`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`
+                  }
+                }
+              );
+              release = res.data;
+            } catch {
+              const res = await axios.post(
+                `https://api.github.com/repos/${owner}/${repo}/releases`,
+                {
+                  tag_name: tag,
+                  name: releaseName,
+                  body: "## 🚀 Release Notes\n",
+                  draft: false,
+                  prerelease: false
+                },
+                {
+                  headers: {
+                    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`
+                  }
+                }
+              );
+              release = res.data;
+            }
+
+            // 4. Append new summary
+            const updatedBody = `${release.body}\n${line}`;
+
+            await axios.patch(
+              `https://api.github.com/repos/${owner}/${repo}/releases/${release.id}`,
+              {
+                body: updatedBody
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.GITHUB_TOKEN}`
+                }
+              }
+            );
+
+            console.log("✅ Release notes updated");
+          }
+
+          run();
+          EOF
