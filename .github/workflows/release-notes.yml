@@ -50,7 +50,7 @@ jobs:
             const aiRes = await axios.post(
               "https://openrouter.ai/api/v1/chat/completions",
               {
-                model: "mistralai/mistral-7b-instruct",
+                model: "mistralai/mistral-7b-instruct:free",
                 messages: [{
                   role: "user",
                   content: "Return JSON only, no markdown:\n{\"type\":\"Feature|Bug Fix|Refactor|Improvement\",\"summary\":\"one-line summary\"}\n\nPR Title: " + pr.title + "\nDescription: " + pr.body + "\nCode:\n" + diff
