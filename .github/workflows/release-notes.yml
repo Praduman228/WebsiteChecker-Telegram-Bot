@@ -1,10 +1,26 @@
-       - name: Generate Release Notes 
+name: Auto Release Notes V2
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  release-notes:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install deps
+        run: npm install axios
+
+      - name: Write script
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_DATA: ${{ toJson(github.event.pull_request) }}
-          REPO_OWNER: ${{ github.repository_owner }}
-          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           cat > release_notes.js << 'JSEOF'
           const axios = require("axios");
@@ -24,7 +40,7 @@
           async function run() {
             const diffRes = await axios.get(pr.diff_url, {
               headers: {
-                Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+                Authorization: "Bearer " + process.env.GITHUB_TOKEN,
                 Accept: "application/vnd.github.v3.diff"
               }
             });
@@ -37,12 +53,12 @@
                 model: "mistralai/mistral-7b-instruct",
                 messages: [{
                   role: "user",
-                  content: `Return JSON only, no markdown:\n{"type":"Feature|Bug Fix|Refactor|Improvement","summary":"one-line summary"}\n\nPR Title: ${pr.title}\nDescription: ${pr.body}\nCode:\n${diff}`
+                  content: "Return JSON only, no markdown:\n{\"type\":\"Feature|Bug Fix|Refactor|Improvement\",\"summary\":\"one-line summary\"}\n\nPR Title: " + pr.title + "\nDescription: " + pr.body + "\nCode:\n" + diff
                 }]
               },
               {
                 headers: {
-                  Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`
+                  Authorization: "Bearer " + process.env.OPENROUTER_API_KEY
                 }
               }
             );
@@ -52,11 +68,11 @@
               const raw = aiRes.data.choices[0].message.content
                 .replace(/```json|```/g, "").trim();
               result = JSON.parse(raw);
-            } catch {
+            } catch (e) {
               result = { type: "Improvement", summary: pr.title };
             }
 
-            const line = `- **[${result.type}]** ${result.summary} ([PR](${pr.html_url}))`;
+            const line = "- **[" + result.type + "]** " + result.summary + " ([PR](" + pr.html_url + "))";
 
             const tag = "latest";
             const releaseName = "Latest Updates";
@@ -64,36 +80,44 @@
             let release;
             try {
               const res = await axios.get(
-                `https://api.github.com/repos/${owner}/${repo}/releases/tags/${tag}`,
-                { headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } }
+                "https://api.github.com/repos/" + owner + "/" + repo + "/releases/tags/" + tag,
+                { headers: { Authorization: "Bearer " + process.env.GITHUB_TOKEN } }
               );
               release = res.data;
-            } catch {
+            } catch (e) {
               const res = await axios.post(
-                `https://api.github.com/repos/${owner}/${repo}/releases`,
+                "https://api.github.com/repos/" + owner + "/" + repo + "/releases",
                 {
                   tag_name: tag,
                   name: releaseName,
-                  body: "## 🚀 Release Notes\n",
+                  body: "## Release Notes\n",
                   draft: false,
                   prerelease: false
                 },
-                { headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } }
+                { headers: { Authorization: "Bearer " + process.env.GITHUB_TOKEN } }
               );
               release = res.data;
             }
 
-            const updatedBody = `${release.body || ""}\n${line}`;
+            const updatedBody = (release.body || "") + "\n" + line;
 
             await axios.patch(
-              `https://api.github.com/repos/${owner}/${repo}/releases/${release.id}`,
+              "https://api.github.com/repos/" + owner + "/" + repo + "/releases/" + release.id,
               { body: updatedBody },
-              { headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } }
+              { headers: { Authorization: "Bearer " + process.env.GITHUB_TOKEN } }
             );
 
-            console.log("✅ Release notes updated");
+            console.log("Release notes updated");
           }
 
-          run().catch(err => { console.error(err); process.exit(1); });
+          run().catch(function(err) { console.error(err); process.exit(1); });
           JSEOF
-          node release_notes.js
+
+      - name: Run script
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_DATA: ${{ toJson(github.event.pull_request) }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: node release_notes.js
