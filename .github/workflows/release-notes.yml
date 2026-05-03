@@ -28,7 +28,7 @@ jobs:
 
           const pr = {
             title: "${{ github.event.pull_request.title }}",
-            body: `${{ github.event.pull_request.body || "" }}`,
+            body: `${{ github.event.pull_request.body != null && github.event.pull_request.body || '' }}`
             diff_url: "${{ github.event.pull_request.diff_url }}",
             html_url: "${{ github.event.pull_request.html_url }}"
           };
