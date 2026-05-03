@@ -22,16 +22,19 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_DATA: ${{ toJson(github.event.pull_request) }}
         run: |
           node <<'EOF'
           const axios = require("axios");
 
-          const pr = {
-            title: "${{ github.event.pull_request.title }}",
-            body: `${{ github.event.pull_request.body != null && github.event.pull_request.body || '' }}`
-            diff_url: "${{ github.event.pull_request.diff_url }}",
-            html_url: "${{ github.event.pull_request.html_url }}"
-          };
+           const prRaw = JSON.parse(process.env.PR_DATA);
+
+            const pr = {
+            title: prRaw.title,
+            body: prRaw.body || "N/A",
+            diff_url: prRaw.diff_url,
+            html_url: prRaw.html_url
+                };
 
           const owner = "${{ github.repository_owner }}";
           const repo = "${{ github.event.repository.name }}";
